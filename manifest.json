@@ -1,7 +1,7 @@
 {
   "name": "Screenshot Feed",
   "short_name": "Screenshots",
-  "start_url": "./contact-roll.html",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff"
