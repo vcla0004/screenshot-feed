@@ -34,7 +34,6 @@
 
   .stage{
     width: 100%;
-    max-width: 430px;
     min-height: 100dvh;
     background: var(--bg);
     position:relative;
@@ -42,13 +41,13 @@
     flex-direction:column;
   }
   @media (min-width: 600px){
-    .stage{ margin: 20px 0; min-height: calc(100dvh - 40px); border-radius: 46px; overflow:hidden; box-shadow: 0 24px 60px -30px rgba(0,0,0,0.35); }
+    .stage{ max-width: 430px; margin: 20px 0; min-height: calc(100dvh - 40px); border-radius: 46px; overflow:hidden; box-shadow: 0 24px 60px -30px rgba(0,0,0,0.35); }
+    .topbar{ max-width: 430px; margin: 0 auto; }
   }
 
   /* ---------- floating header ---------- */
   .topbar{
     position:fixed; top:0; left:0; right:0; z-index:20;
-    max-width:430px; margin:0 auto;
     display:flex; align-items:center; justify-content:center;
     padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 16px;
     background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0));
