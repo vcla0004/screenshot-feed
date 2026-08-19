@@ -48,7 +48,36 @@
   }
 
   /* ---------- page transition ---------- */
-  .stage.sliding{ will-change: transform; }
+  /* Native cross-document transition: the browser snapshots the whole
+     screen (header included) and slides it, so there is no blank gap. */
+  @view-transition { navigation: auto; }
+
+  ::view-transition-group(root){
+    animation-duration: 420ms;
+    animation-timing-function: cubic-bezier(.32,.72,0,1);
+  }
+  ::view-transition-old(root){
+    animation: 420ms cubic-bezier(.32,.72,0,1) both page-exit-right;
+  }
+  ::view-transition-new(root){
+    animation: 420ms cubic-bezier(.32,.72,0,1) both page-enter-left;
+  }
+  @keyframes page-exit-right{
+    from{ transform: translateX(0); }
+    to{ transform: translateX(100%); }
+  }
+  @keyframes page-enter-left{
+    from{ transform: translateX(-100%); }
+    to{ transform: translateX(0); }
+  }
+
+  /* fallback slide for browsers without view transitions */
+  .stage.sliding{ will-change: transform; backface-visibility: hidden; }
+
+  @media (prefers-reduced-motion: reduce){
+    ::view-transition-old(root),
+    ::view-transition-new(root){ animation: none; }
+  }
 
   /* ---------- floating header ---------- */
   .topbar{
@@ -361,10 +390,14 @@
   var SLIDE_MS = 380;
   var SLIDE_EASE = "cubic-bezier(.32,.72,0,1)";
 
-  // Arriving from a slide: the whole screen comes in from the left.
+  // If the browser drives the transition natively, JS must not animate too.
+  var nativeVT = typeof CSS !== "undefined" && CSS.supports &&
+                 CSS.supports("view-transition-name", "none");
+
+  // Fallback only: arriving page slides in from the left.
   if(sessionStorage.getItem("navSlide")){
     sessionStorage.removeItem("navSlide");
-    if(!reduceMotion && typeof stage.animate === "function"){
+    if(!nativeVT && !reduceMotion && typeof stage.animate === "function"){
       stage.classList.add("sliding");
       var enter = stage.animate([
         { transform: "translateX(-100%)" },
@@ -375,7 +408,7 @@
   }
 
   function slideNavigate(url){
-    if(reduceMotion || typeof stage.animate !== "function"){
+    if(nativeVT || reduceMotion || typeof stage.animate !== "function"){
       window.location.href = url;
       return;
     }
