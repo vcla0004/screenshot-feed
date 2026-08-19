@@ -38,11 +38,20 @@
     position:relative;
     display:flex;
     flex-direction:column;
-    transition: transform .32s cubic-bezier(.32,.08,.24,1);
   }
   @media (min-width: 600px){
     .stage{ max-width: 430px; margin: 20px 0; min-height: calc(100dvh - 40px); border-radius: 46px; overflow:hidden; box-shadow: 0 24px 60px -30px rgba(0,0,0,0.35); }
     .topbar{ max-width: 430px; margin: 0 auto; }
+  }
+
+  /* ---------- bubble page transition ---------- */
+  .nav-bubble{
+    position: fixed;
+    z-index: 90;
+    background: var(--bg);
+    pointer-events: none;
+    will-change: width, height, top, left, border-radius, opacity;
+    box-shadow: 0 10px 40px -12px rgba(17,17,17,0.25);
   }
 
   /* ---------- floating header ---------- */
@@ -177,28 +186,66 @@
   var stage = document.querySelector(".stage");
   var filesChosen = false;
 
-  if(sessionStorage.getItem("navTransition")){
-    sessionStorage.removeItem("navTransition");
-    stage.style.transform = "translateX(-100%)";
-    stage.style.transition = "none";
-    void stage.offsetHeight;
-    stage.style.transition = "";
-    requestAnimationFrame(function(){
-      stage.style.transform = "translateX(0)";
-      stage.addEventListener("transitionend", function onEnter(ev){
-        if(ev.propertyName !== "transform") return;
-        stage.style.transform = "";
-        stage.removeEventListener("transitionend", onEnter);
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Arriving from a bubble transition: cross-fade the content in.
+  if(sessionStorage.getItem("navBubble")){
+    sessionStorage.removeItem("navBubble");
+    if(!reduceMotion){
+      stage.style.opacity = "0";
+      requestAnimationFrame(function(){
+        stage.style.transition = "opacity .18s ease-out";
+        stage.style.opacity = "1";
+        setTimeout(function(){
+          stage.style.transition = "";
+          stage.style.opacity = "";
+        }, 320);
       });
-      setTimeout(function(){ stage.style.transform = ""; }, 600);
+    }
+  }
+
+  function bubbleNavigate(el, url){
+    if(reduceMotion || typeof el.animate !== "function"){
+      window.location.href = url;
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+
+    var bubble = document.createElement("div");
+    bubble.className = "nav-bubble";
+    document.body.appendChild(bubble);
+
+    var navigated = false;
+    function go(){
+      if(navigated) return;
+      navigated = true;
+      window.location.href = url;
+    }
+
+    sessionStorage.setItem("navBubble", "1");
+
+    var anim = bubble.animate([
+      { left: rect.left + "px", top: rect.top + "px",
+        width: rect.width + "px", height: rect.height + "px",
+        borderRadius: "50%", opacity: 0.55 },
+      { left: "0px", top: "0px",
+        width: vw + "px", height: vh + "px",
+        borderRadius: "0px", opacity: 1 }
+    ], {
+      duration: 460,
+      easing: "cubic-bezier(.22,.61,.36,1)",
+      fill: "forwards"
     });
+
+    anim.onfinish = go;
+    setTimeout(go, 620);
   }
 
   backBtn.addEventListener("click", function(e){
     e.stopPropagation();
-    sessionStorage.setItem("navTransition", "1");
-    stage.style.transform = "translateX(100%)";
-    setTimeout(function(){ window.location.href = "index.html"; }, 320);
+    bubbleNavigate(backBtn, "index.html");
   });
 
   function frameNode(file, url){
