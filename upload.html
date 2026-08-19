@@ -82,32 +82,27 @@
     ::view-transition-new(root){ animation: none; }
   }
 
-  .meta-row{
-    padding: 14px 16px 0;
-    margin-bottom: -4px;
-    font-size: 12px; color: var(--ink-dim);
-    text-align: center;
-  }
-  .meta-row strong{ color: rgba(17,17,17,0.75); font-weight:500; }
-
   .reel{
     flex:1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
     scroll-behavior: smooth;
-    scroll-snap-type: y proximity;
-    padding: env(safe-area-inset-top, 0px) 0 0;
+    scroll-snap-type: y mandatory;
+    padding: 0;
     display:flex;
     flex-direction:column;
-    gap: 10px;
+    gap: 0;
   }
 
+  /* each photo fills the whole screen */
   .frame{
     scroll-snap-align: start;
+    flex: 0 0 100dvh;
+    height: 100dvh;
     overflow:hidden;
     background: var(--bg);
-    opacity:0; transform: translateY(8px);
+    opacity:0;
     animation: rise .45s cubic-bezier(.2,.7,.3,1) forwards;
     cursor: pointer;
   }
@@ -265,16 +260,6 @@
     return Math.max(1, Math.round(bytes / 1e3)) + " KB";
   }
 
-  function formatRefreshed(date){
-    var weekday = date.toLocaleDateString("en-US", { weekday: "short" });
-    var month = date.toLocaleDateString("en-US", { month: "short" });
-    var hours = date.getHours();
-    var ampm = hours >= 12 ? "pm" : "am";
-    var h12 = hours % 12 || 12;
-    var mm = date.getMinutes() < 10 ? "0" + date.getMinutes() : "" + date.getMinutes();
-    return weekday + " " + date.getDate() + " " + month + " " + date.getFullYear() + " " + h12 + ":" + mm + ampm;
-  }
-
   function frameNode(item){
     var art = document.createElement("article");
     art.className = "frame";
@@ -282,9 +267,6 @@
     img.decoding = "async";
     img.alt = "Screenshot";
     img.src = objectUrl(item.blob);
-    img.addEventListener("load", function(){
-      art.style.aspectRatio = img.naturalWidth + "/" + img.naturalHeight;
-    }, { once: true });
     art.appendChild(img);
     return art;
   }
@@ -317,11 +299,6 @@
         '</div>';
       return;
     }
-
-    var row = document.createElement("div");
-    row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp));
-    reel.appendChild(row);
 
     state.feed.forEach(function(item){
       reel.appendChild(item.kind === "pdf" ? pdfNode(item) : frameNode(item));
