@@ -22,6 +22,7 @@
     --ink: #111111;
     --ink-dim: #9A9A9A;
     --line: rgba(17,17,17,0.10);
+    --tab-active: #3A4049;
   }
 
   *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -80,6 +81,7 @@
     box-shadow: 0 8px 18px -8px rgba(17,17,17,0.18), inset 0 1px 1px rgba(255,255,255,0.6), inset 0 -6px 10px -8px rgba(255,255,255,0.35);
     display:flex; align-items:center; justify-content:center;
     cursor:pointer; pointer-events:auto;
+    border:none;
   }
   .topbar-back svg{ width:18px; height:18px; }
   .topbar-title{
@@ -117,7 +119,6 @@
   }
   @media (prefers-reduced-motion: reduce){
     .frame{ animation: none; opacity:1; transform:none; }
-    .stage{ transition:none; }
   }
   @keyframes rise{ to{ opacity:1; transform:none; } }
 
@@ -152,10 +153,10 @@
   .doc-meta{ font-size:12px; color: var(--ink-dim); margin-top:1px; }
 
   /* ---------- tabs ---------- */
-  .tabs-wrap{ display:flex; flex-direction:column; }
+  .tabs-wrap{ display:flex; flex-direction:column; gap:10px; }
   .tab-bar{
     display:flex; gap:2px;
-    margin: 16px 14px 12px;
+    margin: 16px 14px 2px;
     padding: 4px;
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -164,10 +165,11 @@
   .tab-btn{
     flex:1; border:none; background:transparent; cursor:pointer;
     padding: 9px 4px; border-radius: 999px;
+    font-family: inherit;
     font-size: 14px; font-weight:600; color: var(--ink-dim);
     transition: background .18s ease, color .18s ease;
   }
-  .tab-btn.active{ background: var(--ink); color: #fff; }
+  .tab-btn.active{ background: var(--tab-active); color: #fff; }
   .tab-panel{ display:flex; flex-direction:column; gap:10px; }
   .slot{
     position:relative;
@@ -193,9 +195,7 @@
     background: rgba(17,17,17,0.5); color:#fff;
     font-size:11.5px; font-weight:600;
     padding:6px 11px; border-radius:999px;
-    display:none;
   }
-  .slot.filled .slot-replace{ display:block; }
 
   /* ---------- empty state ---------- */
   .empty{
@@ -230,15 +230,295 @@
 (function(){
   "use strict";
 
+  var SLOT_COUNTS = [3, 1, 1];
+  var TAB_LABELS = ["Tab 1", "Tab 2", "Tab 3"];
+  var STATE_KEY = "index";
+
   var reel = document.getElementById("reel");
   var fileInput = document.getElementById("fileInput");
   var backBtn = document.getElementById("backBtn");
   var stage = document.querySelector(".stage");
-  var filesChosen = false;
-
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Arriving from a bubble transition: cross-fade the content in.
+  // state.feed: [{blob, kind, name, size}]  state.tabs[i][slot]: item or null
+  var state = {
+    feed: [],
+    tabs: SLOT_COUNTS.map(function(n){ return new Array(n).fill(null); }),
+    stamp: null
+  };
+  var activeTab = 0;
+  var liveUrls = [];
+
+  /* ---------------- storage (survives navigation, cleared on reload) ------------- */
+
+  var dbPromise = new Promise(function(resolve, reject){
+    var req = indexedDB.open("feedSession", 1);
+    req.onupgradeneeded = function(){
+      var db = req.result;
+      if(!db.objectStoreNames.contains("state")) db.createObjectStore("state");
+    };
+    req.onsuccess = function(){ resolve(req.result); };
+    req.onerror = function(){ reject(req.error); };
+  });
+
+  function withStore(mode, fn){
+    return dbPromise.then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction("state", mode);
+        var out = fn(tx.objectStore("state"));
+        tx.oncomplete = function(){ resolve(out && out.result !== undefined ? out.result : out); };
+        tx.onerror = function(){ reject(tx.error); };
+      });
+    }).catch(function(){ return null; });
+  }
+
+  function saveState(){
+    return withStore("readwrite", function(store){ store.put(state, STATE_KEY); });
+  }
+  function loadState(){
+    return withStore("readonly", function(store){ return store.get(STATE_KEY); });
+  }
+  function clearState(){
+    return withStore("readwrite", function(store){ store.delete(STATE_KEY); });
+  }
+
+  function isReload(){
+    try{
+      var nav = performance.getEntriesByType("navigation")[0];
+      if(nav && nav.type) return nav.type === "reload";
+    }catch(e){}
+    return false;
+  }
+
+  /* ---------------- image helpers ---------------- */
+
+  function downscaleToBlob(file){
+    return new Promise(function(resolve){
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){
+        var MAXW = 1600;
+        if(img.naturalWidth <= MAXW){
+          URL.revokeObjectURL(url);
+          resolve(file);
+          return;
+        }
+        var scale = MAXW / img.naturalWidth;
+        var canvas = document.createElement("canvas");
+        canvas.width = MAXW;
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(function(b){ resolve(b || file); }, "image/webp", 0.85);
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  function toItem(file){
+    if(file.type === "application/pdf"){
+      return Promise.resolve({ blob: file, kind: "pdf", name: file.name, size: file.size });
+    }
+    return downscaleToBlob(file).then(function(blob){
+      return { blob: blob, kind: "image", name: file.name, size: blob.size };
+    });
+  }
+
+  function objectUrl(blob){
+    var url = URL.createObjectURL(blob);
+    liveUrls.push(url);
+    return url;
+  }
+
+  function formatSize(bytes){
+    if(bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
+    return Math.max(1, Math.round(bytes / 1e3)) + " KB";
+  }
+
+  function formatRefreshed(date){
+    var weekday = date.toLocaleDateString("en-US", { weekday: "short" });
+    var month = date.toLocaleDateString("en-US", { month: "short" });
+    var hours = date.getHours();
+    var ampm = hours >= 12 ? "pm" : "am";
+    var h12 = hours % 12 || 12;
+    var mm = date.getMinutes() < 10 ? "0" + date.getMinutes() : "" + date.getMinutes();
+    return weekday + " " + date.getDate() + " " + month + " " + date.getFullYear() + " " + h12 + ":" + mm + ampm;
+  }
+
+  /* ---------------- node builders ---------------- */
+
+  function frameNode(item){
+    var art = document.createElement("article");
+    art.className = "frame";
+    var img = new Image();
+    img.decoding = "async";
+    img.alt = "Screenshot";
+    img.src = objectUrl(item.blob);
+    img.addEventListener("load", function(){
+      art.style.aspectRatio = img.naturalWidth + "/" + img.naturalHeight;
+    }, { once: true });
+    art.appendChild(img);
+    return art;
+  }
+
+  function pdfNode(item){
+    var a = document.createElement("a");
+    a.className = "doc-card";
+    a.href = objectUrl(item.blob);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.innerHTML =
+      '<span class="doc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg></span>' +
+      '<span class="doc-text"><span class="doc-name"></span>' +
+      '<span class="doc-meta">PDF · ' + formatSize(item.size) + '</span></span>';
+    a.querySelector(".doc-name").textContent = item.name;
+    return a;
+  }
+
+  function itemNode(item){
+    return item.kind === "pdf" ? pdfNode(item) : frameNode(item);
+  }
+
+  function metaRow(){
+    var row = document.createElement("div");
+    row.className = "meta-row";
+    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp));
+    return row;
+  }
+
+  function slotNode(tabIndex, slotIndex){
+    var item = state.tabs[tabIndex][slotIndex];
+    var slot = document.createElement("div");
+
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.hidden = true;
+    input.addEventListener("change", function(){
+      var file = input.files && input.files[0];
+      input.value = "";
+      if(!file || file.type.indexOf("image/") !== 0) return;
+      toItem(file).then(function(newItem){
+        state.tabs[tabIndex][slotIndex] = newItem;
+        saveState();
+        render();
+      });
+    });
+
+    if(item){
+      slot.className = "slot filled";
+      var img = new Image();
+      img.decoding = "async";
+      img.alt = "Photo";
+      img.src = objectUrl(item.blob);
+      img.addEventListener("load", function(){
+        slot.style.aspectRatio = img.naturalWidth + "/" + img.naturalHeight;
+      }, { once: true });
+      slot.appendChild(img);
+      var badge = document.createElement("span");
+      badge.className = "slot-replace";
+      badge.textContent = "Replace";
+      slot.appendChild(badge);
+    } else {
+      slot.className = "slot";
+      slot.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
+        "<span>Tap to add a photo</span>";
+    }
+
+    slot.appendChild(input);
+    slot.addEventListener("click", function(e){
+      e.stopPropagation();
+      input.click();
+    });
+    return slot;
+  }
+
+  function tabsSection(){
+    var wrap = document.createElement("div");
+    wrap.className = "tabs-wrap";
+
+    var bar = document.createElement("div");
+    bar.className = "tab-bar";
+    TAB_LABELS.forEach(function(label, i){
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tab-btn" + (i === activeTab ? " active" : "");
+      btn.textContent = label;
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
+        activeTab = i;
+        render();
+      });
+      bar.appendChild(btn);
+    });
+    wrap.appendChild(bar);
+
+    var panel = document.createElement("div");
+    panel.className = "tab-panel";
+    for(var s = 0; s < SLOT_COUNTS[activeTab]; s++){
+      panel.appendChild(slotNode(activeTab, s));
+    }
+    wrap.appendChild(panel);
+
+    return wrap;
+  }
+
+  /* ---------------- render ---------------- */
+
+  function render(){
+    liveUrls.forEach(function(u){ URL.revokeObjectURL(u); });
+    liveUrls = [];
+    reel.innerHTML = "";
+
+    if(!state.feed.length){
+      reel.innerHTML =
+        '<div class="empty">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
+          '<div class="empty-title">Opening picker…</div>' +
+          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.</div>' +
+        '</div>';
+      return;
+    }
+
+    reel.appendChild(metaRow());
+    reel.appendChild(itemNode(state.feed[0]));
+    reel.appendChild(tabsSection());
+    for(var i = 1; i < state.feed.length; i++){
+      reel.appendChild(itemNode(state.feed[i]));
+    }
+  }
+
+  /* ---------------- picking ---------------- */
+
+  function addFiles(fileList){
+    var files = Array.prototype.slice.call(fileList).filter(function(f){
+      return f.type.indexOf("image/") === 0 || f.type === "application/pdf";
+    });
+    if(!files.length) return;
+    Promise.all(files.map(toItem)).then(function(items){
+      state.feed = state.feed.concat(items);
+      if(!state.stamp) state.stamp = Date.now();
+      saveState();
+      render();
+    });
+  }
+
+  fileInput.addEventListener("change", function(){
+    if(fileInput.files && fileInput.files.length) addFiles(fileInput.files);
+    fileInput.value = "";
+  });
+
+  function openPicker(){
+    if(state.feed.length) return;
+    fileInput.click();
+  }
+
+  document.addEventListener("click", openPicker);
+
+  /* ---------------- page transition ---------------- */
+
   if(sessionStorage.getItem("navBubble")){
     sessionStorage.removeItem("navBubble");
     if(!reduceMotion){
@@ -260,9 +540,6 @@
       return;
     }
     var rect = el.getBoundingClientRect();
-    var vw = window.innerWidth;
-    var vh = window.innerHeight;
-
     var bubble = document.createElement("div");
     bubble.className = "nav-bubble";
     document.body.appendChild(bubble);
@@ -281,13 +558,9 @@
         width: rect.width + "px", height: rect.height + "px",
         borderRadius: "50%", opacity: 0.55 },
       { left: "0px", top: "0px",
-        width: vw + "px", height: vh + "px",
+        width: window.innerWidth + "px", height: window.innerHeight + "px",
         borderRadius: "0px", opacity: 1 }
-    ], {
-      duration: 460,
-      easing: "cubic-bezier(.22,.61,.36,1)",
-      fill: "forwards"
-    });
+    ], { duration: 460, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" });
 
     anim.onfinish = go;
     setTimeout(go, 620);
@@ -298,215 +571,22 @@
     bubbleNavigate(backBtn, "upload.html");
   });
 
-  function frameNode(file, url){
-    var art = document.createElement("article");
-    art.className = "frame";
-    var img = new Image();
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.alt = "Screenshot";
-    img.src = url;
-    img.addEventListener("load", function(){
-      art.style.aspectRatio = img.naturalWidth + "/" + img.naturalHeight;
-    }, { once: true });
-    art.appendChild(img);
-    return art;
-  }
+  /* ---------------- boot ---------------- */
 
-  function downscaleIfNeeded(file){
-    return new Promise(function(resolve){
-      var url = URL.createObjectURL(file);
-      var img = new Image();
-      img.onload = function(){
-        var MAXW = 1600;
-        if(img.naturalWidth <= MAXW){
-          resolve(url);
-          return;
-        }
-        var scale = MAXW / img.naturalWidth;
-        var canvas = document.createElement("canvas");
-        canvas.width = MAXW;
-        canvas.height = Math.round(img.naturalHeight * scale);
-        var ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
-        canvas.toBlob(function(b){
-          resolve(b ? URL.createObjectURL(b) : url);
-        }, "image/webp", 0.85);
-      };
-      img.onerror = function(){ resolve(url); };
-      img.src = url;
-    });
-  }
-
-  function formatSize(bytes){
-    if(bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
-    return Math.max(1, Math.round(bytes / 1e3)) + " KB";
-  }
-
-  function pdfNode(file, url){
-    var a = document.createElement("a");
-    a.className = "doc-card";
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.innerHTML =
-      '<span class="doc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg></span>' +
-      '<span class="doc-text">' +
-        '<span class="doc-name"></span>' +
-        '<span class="doc-meta">PDF · ' + formatSize(file.size) + '</span>' +
-      '</span>';
-    a.querySelector(".doc-name").textContent = file.name;
-    return a;
-  }
-
-  function formatRefreshed(date){
-    var weekday = date.toLocaleDateString("en-US", { weekday: "short" });
-    var day = date.getDate();
-    var month = date.toLocaleDateString("en-US", { month: "short" });
-    var year = date.getFullYear();
-    var hours = date.getHours();
-    var minutes = date.getMinutes();
-    var ampm = hours >= 12 ? "pm" : "am";
-    var h12 = hours % 12 || 12;
-    var mm = minutes < 10 ? "0" + minutes : "" + minutes;
-    return weekday + " " + day + " " + month + " " + year + " " + h12 + ":" + mm + ampm;
-  }
-
-  function metaRow(){
-    var row = document.createElement("div");
-    row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date());
-    return row;
-  }
-
-  function buildTabsSection(){
-    var wrap = document.createElement("div");
-    wrap.className = "tabs-wrap";
-
-    var bar = document.createElement("div");
-    bar.className = "tab-bar";
-    var labels = ["Tab 1", "Tab 2", "Tab 3"];
-    var tabBtns = labels.map(function(label, i){
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "tab-btn" + (i === 0 ? " active" : "");
-      btn.textContent = label;
-      bar.appendChild(btn);
-      return btn;
-    });
-    wrap.appendChild(bar);
-
-    var slotCounts = [3, 1, 1];
-
-    var panels = labels.map(function(_, i){
-      var panel = document.createElement("div");
-      panel.className = "tab-panel";
-      panel.hidden = i !== 0;
-      for(var s = 0; s < slotCounts[i]; s++){
-        panel.appendChild(makeSlot());
+  if(isReload()){
+    clearState().then(function(){ render(); openPicker(); });
+  } else {
+    loadState().then(function(saved){
+      if(saved && saved.feed && saved.feed.length){
+        state = saved;
+        if(!state.tabs) state.tabs = SLOT_COUNTS.map(function(n){ return new Array(n).fill(null); });
+        render();
+      } else {
+        render();
+        openPicker();
       }
-      wrap.appendChild(panel);
-      return panel;
-    });
-
-    tabBtns.forEach(function(btn, i){
-      btn.addEventListener("click", function(e){
-        e.stopPropagation();
-        tabBtns.forEach(function(b){ b.classList.remove("active"); });
-        btn.classList.add("active");
-        panels.forEach(function(p, j){ p.hidden = j !== i; });
-      });
-    });
-
-    function makeSlot(){
-      var slot = document.createElement("div");
-      slot.className = "slot";
-      slot.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
-        "<span>Tap to add a photo</span>";
-
-      var input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.hidden = true;
-      slot.appendChild(input);
-
-      input.addEventListener("change", function(){
-        var file = input.files && input.files[0];
-        input.value = "";
-        if(!file || file.type.indexOf("image/") !== 0) return;
-        downscaleIfNeeded(file).then(function(url){
-          var img = new Image();
-          img.decoding = "async";
-          img.alt = "Photo";
-          img.src = url;
-          img.addEventListener("load", function(){
-            slot.style.aspectRatio = img.naturalWidth + "/" + img.naturalHeight;
-          }, { once: true });
-
-          slot.innerHTML = "";
-          slot.className = "slot filled";
-          slot.appendChild(img);
-          var badge = document.createElement("span");
-          badge.className = "slot-replace";
-          badge.textContent = "Replace";
-          slot.appendChild(badge);
-          slot.appendChild(input);
-        });
-      });
-
-      slot.addEventListener("click", function(e){
-        e.stopPropagation();
-        input.click();
-      });
-
-      return slot;
-    }
-
-    return wrap;
-  }
-
-  function showFiles(fileList){
-    var files = Array.prototype.slice.call(fileList).filter(function(f){
-      return f.type.indexOf("image/") === 0 || f.type === "application/pdf";
-    });
-    if(!files.length) return;
-    reel.innerHTML = "";
-    reel.appendChild(metaRow());
-
-    function appendFirst(node){
-      reel.appendChild(node);
-      reel.appendChild(buildTabsSection());
-    }
-
-    files.forEach(function(file, idx){
-      if(file.type === "application/pdf"){
-        var node = pdfNode(file, URL.createObjectURL(file));
-        if(idx === 0){ appendFirst(node); } else { reel.appendChild(node); }
-        return;
-      }
-      downscaleIfNeeded(file).then(function(url){
-        var node = frameNode(file, url);
-        if(idx === 0){ appendFirst(node); } else { reel.appendChild(node); }
-      });
     });
   }
-
-  function openPicker(){
-    if(filesChosen) return;
-    fileInput.click();
-  }
-
-  fileInput.addEventListener("change", function(){
-    if(fileInput.files && fileInput.files.length){
-      filesChosen = true;
-      showFiles(fileInput.files);
-    }
-  });
-
-  window.addEventListener("load", openPicker);
-  document.addEventListener("click", openPicker);
 })();
 </script>
 </body>
