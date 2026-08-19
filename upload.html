@@ -47,15 +47,8 @@
     .topbar{ max-width: 430px; margin: 0 auto; }
   }
 
-  /* ---------- bubble page transition ---------- */
-  .nav-bubble{
-    position: fixed;
-    z-index: 90;
-    background: var(--bg);
-    pointer-events: none;
-    will-change: width, height, top, left, border-radius, opacity;
-    box-shadow: 0 10px 40px -12px rgba(17,17,17,0.25);
-  }
+  /* ---------- page transition ---------- */
+  .stage.sliding{ will-change: transform; }
 
   /* ---------- floating header ---------- */
   .topbar{
@@ -365,30 +358,27 @@
 
   /* ---------------- page transition ---------------- */
 
-  if(sessionStorage.getItem("navBubble")){
-    sessionStorage.removeItem("navBubble");
-    if(!reduceMotion){
-      stage.style.opacity = "0";
-      requestAnimationFrame(function(){
-        stage.style.transition = "opacity .18s ease-out";
-        stage.style.opacity = "1";
-        setTimeout(function(){
-          stage.style.transition = "";
-          stage.style.opacity = "";
-        }, 320);
-      });
+  var SLIDE_MS = 380;
+  var SLIDE_EASE = "cubic-bezier(.32,.72,0,1)";
+
+  // Arriving from a slide: the whole screen comes in from the left.
+  if(sessionStorage.getItem("navSlide")){
+    sessionStorage.removeItem("navSlide");
+    if(!reduceMotion && typeof stage.animate === "function"){
+      stage.classList.add("sliding");
+      var enter = stage.animate([
+        { transform: "translateX(-100%)" },
+        { transform: "translateX(0)" }
+      ], { duration: SLIDE_MS, easing: SLIDE_EASE });
+      enter.onfinish = function(){ stage.classList.remove("sliding"); };
     }
   }
 
-  function bubbleNavigate(el, url){
-    if(reduceMotion || typeof el.animate !== "function"){
+  function slideNavigate(url){
+    if(reduceMotion || typeof stage.animate !== "function"){
       window.location.href = url;
       return;
     }
-    var rect = el.getBoundingClientRect();
-    var bubble = document.createElement("div");
-    bubble.className = "nav-bubble";
-    document.body.appendChild(bubble);
 
     var navigated = false;
     function go(){
@@ -397,24 +387,21 @@
       window.location.href = url;
     }
 
-    sessionStorage.setItem("navBubble", "1");
+    sessionStorage.setItem("navSlide", "1");
 
-    var anim = bubble.animate([
-      { left: rect.left + "px", top: rect.top + "px",
-        width: rect.width + "px", height: rect.height + "px",
-        borderRadius: "50%", opacity: 0.55 },
-      { left: "0px", top: "0px",
-        width: window.innerWidth + "px", height: window.innerHeight + "px",
-        borderRadius: "0px", opacity: 1 }
-    ], { duration: 460, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" });
+    stage.classList.add("sliding");
+    var exit = stage.animate([
+      { transform: "translateX(0)" },
+      { transform: "translateX(100%)" }
+    ], { duration: SLIDE_MS, easing: SLIDE_EASE, fill: "forwards" });
 
-    anim.onfinish = go;
-    setTimeout(go, 620);
+    exit.onfinish = go;
+    setTimeout(go, SLIDE_MS + 160);
   }
 
   backBtn.addEventListener("click", function(e){
     e.stopPropagation();
-    bubbleNavigate(backBtn, "index.html");
+    slideNavigate("index.html");
   });
 
   /* ---------------- boot ---------------- */
