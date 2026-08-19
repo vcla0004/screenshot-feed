@@ -156,17 +156,18 @@
   .tabs-wrap{ display:flex; flex-direction:column; gap:10px; }
   .tab-bar{
     position:relative;
-    display:flex; gap:2px;
+    display:flex; gap:0;
     margin: 16px 14px 2px;
-    padding: 3px;
+    padding: 0;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--bg);
     touch-action: manipulation;
+    overflow: hidden;
   }
   /* the morphing pill that slides between tabs */
   .tab-indicator{
-    position:absolute; top:3px; bottom:3px; left:0;
+    position:absolute; top:0; bottom:0; left:0;
     width:0;
     background: var(--tab-active);
     border-radius: 999px;
@@ -418,7 +419,7 @@
   function metaRow(){
     var row = document.createElement("div");
     row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 8";
+    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 9";
     return row;
   }
 
@@ -537,22 +538,18 @@
     var fromLeft = indicatorPos.left;
     var fromWidth = indicatorPos.width || toWidth;
 
-    // stretch across both positions at the midpoint, then settle — iOS-style
-    var spanLeft = Math.min(fromLeft, toLeft);
-    var spanWidth = Math.max(fromLeft + fromWidth, toLeft + toWidth) - spanLeft;
-
     indicatorPos = { left: toLeft, width: toWidth };
 
     if(indicatorEl.getAnimations){
       indicatorEl.getAnimations().forEach(function(a){ a.cancel(); });
     }
 
+    // travel straight toward the tapped tab — no mid-flight stretch
     indicatorEl.animate([
       { transform: "translateX(" + fromLeft + "px)", width: fromWidth + "px" },
-      { transform: "translateX(" + spanLeft + "px)", width: spanWidth + "px", offset: 0.42 },
       { transform: "translateX(" + toLeft + "px)", width: toWidth + "px" }
     ], {
-      duration: 520,
+      duration: 380,
       easing: "cubic-bezier(.32,.72,0,1)",
       fill: "forwards"
     });
@@ -633,7 +630,7 @@
         '<div class="empty">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
           '<div class="empty-title">Opening picker…</div>' +
-          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 8</div>' +
+          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 9</div>' +
         '</div>';
       return;
     }
