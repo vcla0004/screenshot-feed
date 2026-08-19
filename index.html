@@ -54,23 +54,27 @@
      screen (header included) and slides it, so there is no blank gap. */
   @view-transition { navigation: auto; }
 
-  ::view-transition-group(root){
-    animation-duration: 420ms;
-    animation-timing-function: cubic-bezier(.32,.72,0,1);
-  }
+  /* Kill the default root morph + cross-fade. Without these the snapshot
+     resizes between pages, which reads as an expand from a corner. */
+  ::view-transition-group(root){ animation: none; }
+  ::view-transition-image-pair(root){ isolation: auto; }
+
+  /* Old page holds still underneath. */
   ::view-transition-old(root){
-    animation: 420ms cubic-bezier(.32,.72,0,1) both page-exit-right;
+    animation: none;
+    mix-blend-mode: normal;
   }
+
+  /* New page slides in from the left, on top of the old one. */
   ::view-transition-new(root){
     animation: 420ms cubic-bezier(.32,.72,0,1) both page-enter-left;
+    mix-blend-mode: normal;
+    z-index: 1;
   }
-  @keyframes page-exit-right{
-    from{ transform: translateX(0); }
-    to{ transform: translateX(100%); }
-  }
+
   @keyframes page-enter-left{
-    from{ transform: translateX(-100%); }
-    to{ transform: translateX(0); }
+    from{ transform: translateX(-100%); box-shadow: 0 0 40px rgba(0,0,0,0.28); }
+    to{ transform: translateX(0); box-shadow: 0 0 0 rgba(0,0,0,0); }
   }
 
   /* fallback slide for browsers without view transitions */
@@ -441,7 +445,7 @@
   function metaRow(){
     var row = document.createElement("div");
     row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 12";
+    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 13";
     return row;
   }
 
@@ -652,7 +656,7 @@
         '<div class="empty">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
           '<div class="empty-title">Opening picker…</div>' +
-          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 12</div>' +
+          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 13</div>' +
         '</div>';
       return;
     }
