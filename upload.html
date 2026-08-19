@@ -44,7 +44,6 @@
   }
   @media (min-width: 600px){
     .stage{ max-width: 430px; margin: 20px 0; min-height: calc(100dvh - 40px); border-radius: 46px; overflow:hidden; box-shadow: 0 24px 60px -30px rgba(0,0,0,0.35); }
-    .topbar{ max-width: 430px; margin: 0 auto; }
   }
 
   /* ---------- page transition ---------- */
@@ -83,35 +82,6 @@
     ::view-transition-new(root){ animation: none; }
   }
 
-  /* ---------- floating header ---------- */
-  .topbar{
-    position:fixed; top:0; left:0; right:0; z-index:20;
-    display:flex; align-items:center; justify-content:center;
-    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 16px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0));
-    backdrop-filter: blur(2.5px) saturate(160%);
-    -webkit-backdrop-filter: blur(2.5px) saturate(160%);
-    -webkit-mask-image: linear-gradient(180deg, #000 75%, transparent);
-    mask-image: linear-gradient(180deg, #000 75%, transparent);
-    pointer-events: none;
-  }
-  .topbar-back{
-    position:absolute; left:16px; top: calc(env(safe-area-inset-top, 0px) + 10px);
-    width:40px; height:40px; border-radius:50%;
-    background: linear-gradient(155deg, rgba(255,255,255,0.4), rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.14));
-    backdrop-filter: blur(2px) saturate(160%);
-    -webkit-backdrop-filter: blur(2px) saturate(160%);
-    color: var(--ink);
-    box-shadow: 0 8px 18px -8px rgba(17,17,17,0.18), inset 0 1px 1px rgba(255,255,255,0.6), inset 0 -6px 10px -8px rgba(255,255,255,0.35);
-    display:flex; align-items:center; justify-content:center;
-    cursor:pointer; pointer-events:auto;
-    border:none;
-  }
-  .topbar-back svg{ width:18px; height:18px; }
-  .topbar-title{
-    font-size:19px; font-weight:700; color: rgba(17,17,17,0.8);
-  }
-
   .meta-row{
     padding: 14px 16px 0;
     margin-bottom: -4px;
@@ -127,7 +97,7 @@
     overscroll-behavior-y: contain;
     scroll-behavior: smooth;
     scroll-snap-type: y proximity;
-    padding: calc(env(safe-area-inset-top, 0px) + 62px) 0 0;
+    padding: env(safe-area-inset-top, 0px) 0 0;
     display:flex;
     flex-direction:column;
     gap: 10px;
@@ -139,8 +109,9 @@
     background: var(--bg);
     opacity:0; transform: translateY(8px);
     animation: rise .45s cubic-bezier(.2,.7,.3,1) forwards;
-    pointer-events: none;
+    cursor: pointer;
   }
+  .frame:active{ opacity: .82; }
   @media (prefers-reduced-motion: reduce){
     .frame{ animation: none; opacity:1; transform:none; }
   }
@@ -189,12 +160,6 @@
 <body>
 
 <div class="stage">
-  <header class="topbar">
-    <button class="topbar-back" id="backBtn" type="button" aria-label="Back to feed">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4l-8 8 8 8"/></svg>
-    </button>
-    <span class="topbar-title">Add Photos</span>
-  </header>
   <main class="reel" id="reel"></main>
   <input type="file" id="fileInput" accept="image/*,application/pdf" multiple hidden>
 </div>
@@ -207,7 +172,6 @@
 
   var reel = document.getElementById("reel");
   var fileInput = document.getElementById("fileInput");
-  var backBtn = document.getElementById("backBtn");
   var stage = document.querySelector(".stage");
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -436,7 +400,10 @@
     setTimeout(go, SLIDE_MS + 160);
   }
 
-  backBtn.addEventListener("click", function(e){
+  // Tapping any uploaded photo goes back to View details.
+  reel.addEventListener("click", function(e){
+    var frame = e.target.closest(".frame");
+    if(!frame) return;
     e.stopPropagation();
     slideNavigate("index.html");
   });
