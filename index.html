@@ -157,19 +157,26 @@
   .tab-bar{
     display:flex; gap:2px;
     margin: 16px 14px 2px;
-    padding: 4px;
+    padding: 3px;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--bg);
+    touch-action: manipulation;
   }
   .tab-btn{
     flex:1; border:none; background:transparent; cursor:pointer;
-    padding: 9px 4px; border-radius: 999px;
+    padding: 7px 4px; border-radius: 999px;
     font-family: inherit;
     font-size: 14px; font-weight:600; color: var(--ink-dim);
+    text-align:center;
     transition: background .18s ease, color .18s ease;
+    -webkit-user-select:none; user-select:none;
   }
   .tab-btn.active{ background: var(--tab-active); color: #fff; }
+  .tab-btn.editing{
+    -webkit-user-select:text; user-select:text;
+    outline: 2px solid var(--tab-active); outline-offset: 1px;
+  }
   .tab-panel{ display:flex; flex-direction:column; gap:10px; }
   .slot{
     position:relative;
@@ -244,10 +251,23 @@
   var state = {
     feed: [],
     tabs: SLOT_COUNTS.map(function(n){ return new Array(n).fill(null); }),
+    labels: TAB_LABELS.slice(),
     stamp: null
   };
   var activeTab = 0;
-  var liveUrls = [];
+  var panelEl = null;
+  var tabBtnEls = [];
+
+  // One stable object URL per blob, so re-rendering never re-fetches an image.
+  var urlCache = new WeakMap();
+  function objectUrl(blob){
+    var url = urlCache.get(blob);
+    if(!url){
+      url = URL.createObjectURL(blob);
+      urlCache.set(blob, url);
+    }
+    return url;
+  }
 
   /* ---------------- storage (survives navigation, cleared on reload) ------------- */
 
@@ -325,12 +345,6 @@
     });
   }
 
-  function objectUrl(blob){
-    var url = URL.createObjectURL(blob);
-    liveUrls.push(url);
-    return url;
-  }
-
   function formatSize(bytes){
     if(bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
     return Math.max(1, Math.round(bytes / 1e3)) + " KB";
@@ -383,7 +397,7 @@
   function metaRow(){
     var row = document.createElement("div");
     row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 5";
+    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 6";
     return row;
   }
 
@@ -402,7 +416,7 @@
       toItem(file).then(function(newItem){
         state.tabs[tabIndex][slotIndex] = newItem;
         saveState();
-        render();
+        renderPanel();
       });
     });
 
@@ -435,32 +449,87 @@
     return slot;
   }
 
+  function startEditingLabel(btn, i){
+    btn.classList.add("editing");
+    btn.contentEditable = "true";
+    btn.focus();
+    var range = document.createRange();
+    range.selectNodeContents(btn);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    function finish(){
+      btn.contentEditable = "false";
+      btn.classList.remove("editing");
+      var text = btn.textContent.trim();
+      if(!text){
+        text = TAB_LABELS[i];
+        btn.textContent = text;
+      }
+      state.labels[i] = text;
+      saveState();
+      btn.removeEventListener("blur", finish);
+      btn.removeEventListener("keydown", onKey);
+    }
+    function onKey(e){
+      e.stopPropagation();
+      if(e.key === "Enter"){
+        e.preventDefault();
+        btn.blur();
+      }
+    }
+    btn.addEventListener("blur", finish);
+    btn.addEventListener("keydown", onKey);
+  }
+
+  function renderPanel(){
+    if(!panelEl) return;
+    panelEl.innerHTML = "";
+    for(var s = 0; s < SLOT_COUNTS[activeTab]; s++){
+      panelEl.appendChild(slotNode(activeTab, s));
+    }
+  }
+
+  function setActiveTab(i){
+    if(i === activeTab) return;
+    activeTab = i;
+    tabBtnEls.forEach(function(b, j){
+      b.classList.toggle("active", j === activeTab);
+    });
+    renderPanel();
+  }
+
   function tabsSection(){
     var wrap = document.createElement("div");
     wrap.className = "tabs-wrap";
 
     var bar = document.createElement("div");
     bar.className = "tab-bar";
-    TAB_LABELS.forEach(function(label, i){
-      var btn = document.createElement("button");
-      btn.type = "button";
+    tabBtnEls = state.labels.map(function(label, i){
+      var btn = document.createElement("div");
       btn.className = "tab-btn" + (i === activeTab ? " active" : "");
       btn.textContent = label;
+      btn.setAttribute("role", "tab");
       btn.addEventListener("click", function(e){
         e.stopPropagation();
-        activeTab = i;
-        render();
+        if(btn.isContentEditable) return;
+        setActiveTab(i);
+      });
+      btn.addEventListener("dblclick", function(e){
+        e.stopPropagation();
+        e.preventDefault();
+        startEditingLabel(btn, i);
       });
       bar.appendChild(btn);
+      return btn;
     });
     wrap.appendChild(bar);
 
-    var panel = document.createElement("div");
-    panel.className = "tab-panel";
-    for(var s = 0; s < SLOT_COUNTS[activeTab]; s++){
-      panel.appendChild(slotNode(activeTab, s));
-    }
-    wrap.appendChild(panel);
+    panelEl = document.createElement("div");
+    panelEl.className = "tab-panel";
+    wrap.appendChild(panelEl);
+    renderPanel();
 
     return wrap;
   }
@@ -468,16 +537,16 @@
   /* ---------------- render ---------------- */
 
   function render(){
-    liveUrls.forEach(function(u){ URL.revokeObjectURL(u); });
-    liveUrls = [];
     reel.innerHTML = "";
+    panelEl = null;
+    tabBtnEls = [];
 
     if(!state.feed.length){
       reel.innerHTML =
         '<div class="empty">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
           '<div class="empty-title">Opening picker…</div>' +
-          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 5</div>' +
+          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 6</div>' +
         '</div>';
       return;
     }
@@ -580,6 +649,7 @@
       if(saved && saved.feed && saved.feed.length){
         state = saved;
         if(!state.tabs) state.tabs = SLOT_COUNTS.map(function(n){ return new Array(n).fill(null); });
+        if(!state.labels) state.labels = TAB_LABELS.slice();
         render();
       } else {
         render();
