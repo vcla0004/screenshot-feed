@@ -383,7 +383,7 @@
   function metaRow(){
     var row = document.createElement("div");
     row.className = "meta-row";
-    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp));
+    row.innerHTML = "<strong>Last refreshed:</strong> " + formatRefreshed(new Date(state.stamp)) + " · build 5";
     return row;
   }
 
@@ -477,7 +477,7 @@
         '<div class="empty">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 16l-5.2-5.2a2 2 0 0 0-2.8 0L6 18"/></svg>' +
           '<div class="empty-title">Opening picker…</div>' +
-          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.</div>' +
+          '<div class="empty-sub">If nothing opens, tap anywhere to choose screenshots or PDFs.<br>build 5</div>' +
         '</div>';
       return;
     }
